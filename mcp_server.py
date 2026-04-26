@@ -370,3 +370,56 @@ def jira_assign_issue(
     
     except requests.exceptions.RequestException as e:
         return f"❌ Network error: {str(e)}"
+    
+@mcp.tool(
+    name="jira_add_issues_to_sprint",
+    description="""Add one or multiple issues to an active sprint.
+    
+    Use this when you need to:
+    - Move issues from backlog to current sprint
+    - Add newly created issues to sprint
+    - Reorganize sprint scope
+    
+    You can add issues by providing:
+    - Single issue key (e.g., "TEST-5")
+    - Multiple issue keys separated by commas (e.g., "TEST-5,TEST-6,TEST-7")
+    - Or a list of issue keys from jira_search_issues results
+    
+    Example: Add backlog items to sprint with sprint_id=1, issue_keys="TEST-10,TEST-11,TEST-12"
+    
+    Returns confirmation of which issues were added successfully."""
+)
+def jira_add_issues_to_sprint(
+    sprint_id: int = Field(description="Sprint ID to add issues to (numeric ID, not sprint name)"),
+    issue_keys: str = Field(description="Comma-separated list of issue keys to add (e.g., 'TEST-1,TEST-2,TEST-3')")
+):
+    """Add multiple issues to a sprint"""
+    
+    # Parse issue keys
+    keys = [k.strip() for k in issue_keys.split(",") if k.strip()]
+    
+    if not keys:
+        return "❌ No valid issue keys provided. Use comma-separated format like: TEST-1,TEST-2,TEST-3"
+    
+    url = f"{JIRA_URL}/rest/agile/1.0/sprint/{sprint_id}/issue"
+    payload = {"issues": keys}
+    
+    try:
+        response = requests.post(url, json=payload, headers=get_headers(), timeout=15)
+        
+        if response.status_code == 404:
+            return f"❌ Sprint {sprint_id} not found. Verify the sprint ID is correct.\n\nTip: You can find sprint IDs using Jira board or API."
+        
+        if response.status_code == 400:
+            error_detail = response.json()
+            return f"❌ Invalid request. Common issues:\n- One or more issue keys don't exist\n- Issues already in another sprint\n- Sprint is closed\nDetails: {error_detail}"
+        
+        if response.status_code == 204:
+            return f"✅ Successfully added {len(keys)} issue(s) to sprint {sprint_id}:\n{', '.join(keys)}"
+        else:
+            return f"❌ Failed to add issues: HTTP {response.status_code}\nResponse: {response.text[:200]}"
+    
+    except requests.exceptions.Timeout:
+        return "❌ Request timed out. Sprint might have too many issues or server is slow."
+    except requests.exceptions.RequestException as e:
+        return f"❌ Network error: {str(e)}"
